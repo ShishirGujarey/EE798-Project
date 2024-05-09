@@ -82,7 +82,7 @@
     extern FILE *yyout;
 
     FILE *program;
-    string input_file = "../tests/testcase1.py";
+    string input_file = "../tests/test1.py";
     string output_file = "graph.dot"; 
     void yyerror(const char *s) {
  
@@ -4216,10 +4216,6 @@ void print_help() {
 
 int main (int argc, char *argv[]) {
     bool verbose=false;
-    if(argc==1){
-        cout<<"Incorrect no of arguments"<<endl;
-        return -1;
-    }
     for(int i = 1; i < argc; i++){        
         if(std::string(argv[i]) == "--help" || std::string(argv[i]) == "-h") {
             print_help();

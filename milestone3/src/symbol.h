@@ -4,31 +4,39 @@ using namespace std;
 #define PUBLIC_ACCESS 0
 #define PRIVATE_ACCESS 1
 #define PROTECTED_ACCESS 2
-struct symbol_table;
+#include "tac.h"
+
+// extern Node* root;
+class symbol_table;
+class symbol_table_func;
 class Symbol
 {
 public:
     string lexeme;
     string type;
+    string token;
     int line_no;
     int size;
     int offset;
+    int dimensions;
     bool is_decl = false;
     int access_type = PUBLIC_ACCESS;
     bool is_class = false;
     bool is_func = false;
+    bool is_attr=false;
     bool modifier_bv[10] = {0};
     symbol_table *table;
     Symbol();
-    Symbol(string lexeme, int type, int line_no, int size);
-    Symbol(string lexeme, int type, int line_no);
-    Symbol(string lexeme, int type, int line_no, int size, int access_type);
+    Symbol(string lexeme, string type, int line_no, int size);
+    Symbol(string lexeme, string type, int line_no);
+    Symbol(string lexeme, string type, int line_no, int size, int access_type);
     void update_type(string type);
     void printSym();
 };
 
 class symbol_table
 {
+    public:
     vector<Symbol *> entries;
     string scope, name;
 
@@ -45,17 +53,22 @@ class symbol_table
     void add_entry(Symbol *entry);
     void delete_entry(string name);
 
+    
+    symbol_table_func* look_upfunc(string name);
     Symbol *look_up(string name);
     void make_csv(string filename = "symbol_table.csv");
-    void make_csv_wrapper(string filename);
+    void make_csv_wrapper(string filename="symtab.csv");
     int get_localspace_size();
 };
 
-struct symbol_table_func : public symbol_table
+class symbol_table_func : public symbol_table
 {
+    public:
     vector<Symbol *> params;
     string return_type;
     bool modifier_bv[10] = {0};
+    vector<quad *> codes;
+    
     symbol_table_func(string func_name, vector<Symbol *>(&params), string return_type);
 
     void add_entry(Symbol *new_entry);
@@ -69,33 +82,44 @@ struct symbol_table_func : public symbol_table
     void make_csv(string filename);
 };
 
-struct symbol_table_class : public symbol_table
+class symbol_table_class : public symbol_table
 {
+    public:
     // Stores member variables and a list of Function-Symbol tables for member functions
-    vector<Symbol *> member_funcs;
+    vector<symbol_table_func *> member_funcs;
+    vector<Symbol *> params;
+    vector<Symbol*> attrs;
+    string parent_name = "global";
     int object_size = 0;
     bool modifier_bv[10] = {0};
     bool needs_constructor = false;
 
     symbol_table_class(string class_name);
-
+    void add_init_params(vector<Symbol*> params);
     void add_func(symbol_table_func *func);
     symbol_table_func *look_up_function(string &name, vector<string> &params);
 
-    void update_modifiers(vector<st_entry *> modifiers);
+    void update_modifiers(vector<Symbol *> modifiers);
 
     void make_csv(string filename);
 };
 
-struct symbol_table_global : public symbol_table
+class symbol_table_global : public symbol_table
 {
+    public:
     // Stores classes
+    vector<Symbol *> entries;
     vector<symbol_table_class *> classes;
-
+    vector<symbol_table_func *> funcs;
+    // vector<symbol_table *> sym_tabs;
     symbol_table_global();
     void add_entry(symbol_table_class *new_cls);
+    void add_entry(symbol_table_func *new_func);
+    // void add_entry(symbol_table *new_st);
+    void add_entry(Symbol *entry);
+    symbol_table_func *look_up_func(string cls_name);
     symbol_table_class *look_up_class(string cls_name);
 
-    void make_csv(string filename);
+    void make_csv(string filename= "symbol_table.csv");
     void add_SysOutPln();
 };

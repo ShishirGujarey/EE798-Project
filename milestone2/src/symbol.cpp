@@ -4,36 +4,46 @@
 using namespace std;
 int num_scopes = 0;
 symbol_table_global *main_st = new symbol_table_global();
-
+symbol_table_global * ogroot=main_st;
+symbol_table * orig=new symbol_table("global");
+symbol_table * curr=orig;
+// symbol_table_global* ogroot=(symbol_table_global*) curr;
+typedef  unsigned long long ull;
 Symbol::Symbol() { ; }
-Symbol::Symbol(string lexeme, int type, int line_no, int size)
+Symbol::Symbol(string lexeme, string type, int line_no, int size)
 {
     this->lexeme = lexeme;
     this->type = type;
     this->line_no = line_no;
     this->size = size;
     this->access_type = PUBLIC_ACCESS;
-    this->is_decl = true;
+    // this->is_decl = true;
 }
-Symbol::Symbol(string lexeme, int type, int line_no)
+Symbol::Symbol(string lexeme, string type, int line_no)
 {
     this->lexeme = lexeme;
     this->type = type;
     this->line_no = line_no;
     // this->size=size;
     this->access_type = PUBLIC_ACCESS;
-    this->is_decl = true;
+    // this->is_decl = true;
 }
-Symbol::Symbol(string lexeme, int type, int line_no, int size, int access_type)
+Symbol::Symbol(string lexeme, string type, int line_no, int size, int access_type)
 {
     this->lexeme = lexeme;
     this->type = type;
     this->line_no = line_no;
     this->size = size;
     this->access_type = access_type;
-    this->is_decl = true;
+    // this->is_decl = true;
 }
-
+void Symbol::update_type(string type){
+    this->type = type;
+    // this->size = type_to_size[type];
+    // if(this -> size == 0) {
+    //     this -> size = address_size;       // otherwise it's a reference and hence address_size bytes
+    // }
+}
 void Symbol::printSym()
 {
     cout << this->lexeme << " " << this->type << " " << this->line_no << endl;
@@ -47,21 +57,22 @@ symbol_table::symbol_table()
 {
     this->scope = "";
     this->name = "";
-    this->symbol_table_category = 'B';
+    this->st_category = 'B';
 }
 
 symbol_table::symbol_table(string name)
 {
     this->scope = "";
     this->name = name;
-    this->symbol_table_category = 'B';
+    this->st_category = 'B';
 }
 
 void symbol_table::add_scope(symbol_table *st)
 {
     this->sub_scopes++;
+    this->children_st.push_back(st);
     st->scope = scope + "." + to_string(this->sub_scopes);
-    st->parent_st = this; // st is the child symbol table, this pointer gives the parent symbol table
+    st->parent = this; // st is the child symbol table, this pointer gives the parent symbol table
 }
 
 void symbol_table::add_entry(Symbol *new_entry)
@@ -74,9 +85,9 @@ void symbol_table::add_entry(Symbol *new_entry)
 
     for (auto(&entry) : entries)
     {
-        if (new_entry->name == entry->name)
+        if (new_entry->lexeme == entry->lexeme)
         {
-            cout << "ERROR: Variable " << new_entry->name << " is already declared at line number " << entry->line_no << " in the same scope.\n";
+            cout << "ERROR: Variable " << new_entry->lexeme << " is already declared at line number " << entry->line_no << " in the same scope.\n";
             exit(1);
         }
     }
@@ -88,7 +99,7 @@ void symbol_table::delete_entry(string name)
 {
     for (auto ite = entries.begin(); ite != entries.end(); ite++)
     {
-        if ((*ite)->name == name)
+        if ((*ite)->lexeme == name)
         {
             entries.erase(ite);
             return;
@@ -114,35 +125,58 @@ int symbol_table::get_localspace_size()
 Symbol *symbol_table::look_up(string name)
 {
     //! populate the global symbol table entry list with class names so that lookup here is possible !//
-    if (this->symbol_table_category == 'G')
+    if (this->st_category == 'G')
     {
         return NULL; // use main_st -> look_up_class() for these
     }
 
-    if (this->symbol_table_category == 'M')
+    if (this->st_category == 'M')
     {
         symbol_table_func *tmp = (symbol_table_func *)this;
         for (ull idx = 0; idx < tmp->params.size(); idx++)
         {
-            if (tmp->params[idx]->name == name)
+            if (tmp->params[idx]->lexeme == name)
             {
                 return tmp->params[idx];
             }
         }
     }
+    if (this->st_category=='C'){
+        symbol_table_class* cls=(symbol_table_class *)this;
+        for(auto att:cls->attrs){
+            if(att->lexeme==name) return att;
+        }
+    }
     for (ull idx = 0; idx < entries.size(); idx++)
     {
-        if (entries[idx]->name == name)
+        if (entries[idx]->lexeme == name)
         {
             return entries[idx];
         }
     }
 
-    if (this->parent_st)
+    if (this->parent)
     {
-        return this->parent_st->look_up(name);
+        return this->parent->look_up(name);
     }
 
+    return NULL;
+}
+
+symbol_table_func* symbol_table::look_upfunc(string name)
+{
+
+    if(this->st_category=='C'){
+        symbol_table_class* cls=(symbol_table_class *)this;
+        for(auto it:cls->member_funcs) if(it->name==name) return it;
+    }
+    for(auto &i: this->children_st){
+        if(i->name == name and i->st_category=='M') return (symbol_table_func*)i;
+    }
+    if (this->parent)
+    {
+        return this->parent->look_upfunc(name);
+    }
     return NULL;
 }
 
@@ -176,18 +210,18 @@ void symbol_table_func::add_entry(Symbol *new_entry)
 
     for (const auto(&param) : params)
     {
-        if (new_entry->name == param->name)
+        if (new_entry->lexeme == param->lexeme)
         {
-            cout << "ERROR: Variable " << new_entry->name << " is already declared at line number " << param->line_no << " as a formal parameter.\n";
+            cout << "ERROR: Variable " << new_entry->lexeme << " is already declared at line number " << param->line_no << " as a formal parameter.\n";
             exit(1);
         }
     }
 
     for (const auto(&entry) : entries)
     {
-        if (new_entry->name == entry->name)
+        if (new_entry->lexeme == entry->lexeme)
         {
-            cout << "ERROR: Variable " << new_entry->name << " is already declared at line number " << entry->line_no << " in the same scope.\n";
+            cout << "ERROR: Variable " << new_entry->lexeme << " is already declared at line number " << entry->line_no << " in the same scope.\n";
             exit(1);
         }
     }
@@ -220,7 +254,9 @@ symbol_table_class::symbol_table_class(string class_name)
     this->name = class_name;
     this->st_category = 'C';
 }
-
+void symbol_table_class::add_init_params(vector<Symbol*> params){
+    this->params=params;
+}
 void symbol_table_class::add_func(symbol_table_func *new_func)
 {
     for (auto(&func) : (this->member_funcs))
@@ -246,71 +282,71 @@ void symbol_table_class::add_func(symbol_table_func *new_func)
     this->member_funcs.push_back(new_func);
 }
 
-symbol_table_func *symbol_table_class::look_up_function(string &name, vector<string> &params)
-{
-    bool flag = true;
-    bool match_found = false;
+// symbol_table_func *symbol_table_class::look_up_function(string &name, vector<string> &params)
+// {
+//     bool flag = true;
+//     bool match_found = false;
 
-    // first check for exact argument types
-    for (auto &func : this->member_funcs)
-    {
-        bool flag = true;
-        if (func->name == name && params.size() == func->params.size())
-        {
-            flag = false;
-            for (int idx = 0; idx < params.size(); idx++)
-            {
-                if (params[idx] != func->params[idx]->type)
-                {
-                    flag = true;
-                    break;
-                }
-            }
-        }
-        if (!flag)
-        {
-            match_found = true;
-            return func;
-        }
-    }
+//     // first check for exact argument types
+//     for (auto &func : this->member_funcs)
+//     {
+//         bool flag = true;
+//         if (func->name == name && params.size() == func->params.size())
+//         {
+//             flag = false;
+//             for (int idx = 0; idx < params.size(); idx++)
+//             {
+//                 if (params[idx] != func->params[idx]->type)
+//                 {
+//                     flag = true;
+//                     break;
+//                 }
+//             }
+//         }
+//         if (!flag)
+//         {
+//             match_found = true;
+//             return func;
+//         }
+//     }
 
-    // now check for castable matching
-    match_found = false;
-    for (auto &func : this->member_funcs)
-    {
-        bool flag = true;
-        if (func->name == name && params.size() == func->params.size())
-        {
-            flag = false;
-            for (int idx = 0; idx < params.size(); idx++)
-            {
-                if ((root->get_datatype_category(params[idx]) == 'I' || root->get_datatype_category(params[idx]) == 'D') && (root->get_datatype_category(func->params[idx]->type) == 'I' || root->get_datatype_category(func->params[idx]->type) == 'D'))
-                {
-                    if (root->get_maxtype(params[idx], func->params[idx]->type) != func->params[idx]->type)
-                    {
-                        flag = true;
-                        break;
-                    }
-                }
-                else
-                {
-                    if (params[idx] != func->params[idx]->type)
-                    {
-                        flag = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if (!flag)
-        {
-            match_found = true;
-            return func;
-        }
-    }
+//     // now check for castable matching
+//     match_found = false;
+//     for (auto &func : this->member_funcs)
+//     {
+//         bool flag = true;
+//         if (func->name == name && params.size() == func->params.size())
+//         {
+//             flag = false;
+//             for (int idx = 0; idx < params.size(); idx++)
+//             {
+//                 if ((root->get_datatype_category(params[idx]) == 'I' || root->get_datatype_category(params[idx]) == 'D') && (root->get_datatype_category(func->params[idx]->type) == 'I' || root->get_datatype_category(func->params[idx]->type) == 'D'))
+//                 {
+//                     if (root->get_maxtype(params[idx], func->params[idx]->type) != func->params[idx]->type)
+//                     {
+//                         flag = true;
+//                         break;
+//                     }
+//                 }
+//                 else
+//                 {
+//                     if (params[idx] != func->params[idx]->type)
+//                     {
+//                         flag = true;
+//                         break;
+//                     }
+//                 }
+//             }
+//         }
+//         if (!flag)
+//         {
+//             match_found = true;
+//             return func;
+//         }
+//     }
 
-    return NULL; // if no match
-}
+//     return NULL; // if no match
+// }
 
 int symbol_table_func::get_localspace_size()
 {
@@ -350,9 +386,59 @@ void symbol_table_global::add_entry(symbol_table_class *new_cls)
     this->classes.push_back(new_cls);
 }
 
+
+void symbol_table_global::add_entry(symbol_table_func *new_func)
+{
+    for (auto &cls : this->funcs)
+    {
+        if (new_func->name == cls->name)
+        {
+            cout << "ERROR: Duplicate function " << new_func->name << " at line number " << new_func->scope_start_line_no << endl;
+            exit(1);
+        }
+    }
+
+    this->funcs.push_back(new_func);
+}
+
+
+void symbol_table_global::add_entry(Symbol *new_entry)
+{
+    for (int i = 0; i < new_entry->dimensions; i++)
+    {
+        new_entry->type += "[]";
+    }
+    new_entry->update_type(new_entry->type);
+
+    for (auto(&entry) : entries)
+    {
+        if (new_entry->lexeme == entry->lexeme)
+        {
+            cout << "ERROR: Variable " << new_entry->lexeme << " is already declared at line number " << entry->line_no << " in the same scope.\n";
+            exit(1);
+        }
+    }
+    entries.push_back(new_entry);
+    new_entry->table = this;
+}
+
+
 symbol_table_class *symbol_table_global::look_up_class(string cls_name)
 {
     for (auto &cls : this->classes)
+    {
+        if (cls->name == cls_name)
+        {
+            return cls;
+        }
+    }
+
+    return NULL;
+}
+
+symbol_table_func *symbol_table_global::look_up_func(string cls_name)
+{
+    for (auto &cls : this->funcs)
     {
         if (cls->name == cls_name)
         {
@@ -370,7 +456,7 @@ void symbol_table::make_csv(string filename)
     out << "Scope, Name, Type, Line Number\n";
     for (auto &entry : this->entries)
     {
-        out << this->scope << ", " << entry->name << ", " << entry->type << ", " << entry->line_no << '\n';
+        out << this->scope << ", " << entry->lexeme << ", " << entry->type << ", " << entry->line_no << '\n';
     }
 
     out.close();
@@ -383,13 +469,13 @@ void symbol_table_func::make_csv(string filename)
     out << "Scope, Formal Parameter Name, Formal Parameter Type, Line Number\n";
     for (auto &param : this->params)
     {
-        out << this->scope << ", " << param->name << ", " << param->type << ", " << param->line_no << '\n';
+        out << this->scope << ", " << param->lexeme << ", " << param->type << ", " << param->line_no << '\n';
     }
 
     out << "Scope, Name, Type, Line Number\n";
     for (auto &entry : this->entries)
     {
-        out << this->scope << ", " << entry->name << ", " << entry->type << ", " << entry->line_no << '\n';
+        out << this->scope << ", " << entry->lexeme << ", " << entry->type << ", " << entry->line_no << '\n';
     }
 
     out.close();
@@ -421,7 +507,7 @@ void symbol_table_class::make_csv(string filename)
     out << "Scope, Field Name, Field Type, Line Number\n";
     for (auto &entry : this->entries)
     {
-        out << this->scope << ", " << entry->name << ", " << entry->type << ", " << entry->line_no << '\n';
+        out << this->scope << ", " << entry->lexeme << ", " << entry->type << ", " << entry->line_no << '\n';
     }
 
     out.close();
@@ -446,16 +532,22 @@ void symbol_table::make_csv_wrapper(string filename)
     switch (this->st_category)
     {
     case 'G':
+        cout<<"global\n";
         ((symbol_table_global *)this)->make_csv(filename);
         break;
     case 'C':
+        cout<<"class\n";
         ((symbol_table_class *)this)->make_csv(filename);
         break;
     case 'M':
+        cout<<"mmm\n";
         ((symbol_table_func *)this)->make_csv(filename);
         break;
     case 'B':
+        cout<<"BB\n";
+        // break;
     default:
+        cout<<"MMMM\n";
         ((symbol_table *)this)->make_csv(filename);
         break;
     }
@@ -483,7 +575,7 @@ void symbol_table_global::add_SysOutPln()
 
     vector<Symbol *> empty_params;
     vector<Symbol *> only_string;
-    only_string.push_back(new Symbol("message", -1, -1, "String"));
+    only_string.push_back(new Symbol("message","String", -1, -1));
 
     pln = new symbol_table_func("println", empty_params, "void");
     prnt->add_func(pln);
@@ -503,7 +595,7 @@ void symbol_table_global::add_SysOutPln()
     symbol_table_class *syst;
     Symbol *out;
     syst = new symbol_table_class("System");
-    out = new Symbol("out", -1, -1, "PrintStream");
+    out = new Symbol("out", "PrintStream", -1, -1);
     syst->entries.push_back(out);
     // END System class
 
@@ -511,7 +603,7 @@ void symbol_table_global::add_SysOutPln()
     symbol_table_class *sup;
     Symbol *dum;
     sup = new symbol_table_class("__SUPER__SYSTEM__");
-    dum = new Symbol("System", -1, -1, "System");
+    dum = new Symbol("System", "System", -1, -1);
     sup->entries.push_back(dum);
 
     // ADD to Global Table
